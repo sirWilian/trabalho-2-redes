@@ -1,0 +1,30 @@
+- cada máquina terá um objeto jogador
+
+- as comunicações, entre máquinas, devem ser feitas através de mensagens, 
+    e cada mensagem representa um tipo de operação, i. e., 
+        - entregar cartas, inclusive o vira
+        - coletar palpites 
+        - jogar
+        - verificar ganhador
+            - alternar quem inicia a próxima rodada
+        - retirar x quantidade de vida do jogador y, 
+            caso ele tenha feito um número diferente 
+                de mãos do que o palpitado anteriormente
+        - incrementar número de cartas por mão
+        - eliminar jogador, caso suas vidas tenham acabado, e "retirá-lo" da rede
+         
+- todas as mensagens viajam pela rede toda, quem lidará com ela deverá estar no campo "destino"
+- cada maquina deverá saber lidar com todos os tipos de mensagens
+
+
+TO-DO
+- classe maquina
+- compartimentar funções nas suas classes chaves
+- aumentar o número de cartas por mão
+- criar o conceito de vida
+- coletar palpites
+- verificar ganhador/diminuir vida dos perdedores
+- alternar quem inicia a rodada 
+- criar padrão de mensagem de acordo com as operações necessárias
+    exemplo:
+        ip_destino / operação  

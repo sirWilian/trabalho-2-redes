@@ -15,6 +15,7 @@ def imprime_carta_galera(jogadores):
     print("-----------------------------------------------------------")    
     print()    
 
+# isso deve ser feito pelo servidor
 instanciaBaralho = baralho.Baralho()
 instanciaBaralho.embaralhar()
 
