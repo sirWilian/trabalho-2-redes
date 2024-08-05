@@ -3,12 +3,20 @@ import socket
 import threading
 import time
 
-porta = 44445
+
+# i30 10.254.224.57
+# i32 10.254.224.59 
+
 BUFFER_SIZE = 1024
+BROADCAST_IP = "255.255.255.255"
+BROADCAST_PORT = 44445
+LOCAL_PORT = 44446  # Porta de escuta local diferente da de broadcast
+
+discovered_nodes = set()
 
 class Maquina:
-    def __init__(self, ip, nome):
-        self.ip = ip
+    def __init__(self, nome):
+        self.ip = self.pega_endereco_ip()
         self.jogador = jogador.Jogador(nome) 
         # ip da proxima maquina. deve ser preenchido apos uma 
         # maquina entrar na rede. As maquinas entram na rede 
@@ -18,48 +26,91 @@ class Maquina:
         # indicar qual sera o ip da proxima maquina dela e incrementar o conjunto de maqs.
         self.prox = None 
         self.amigos = None
+        self.bastao = False
+    
+    # ip da propria maquina na rede
+    def pega_endereco_ip(self):
+        try:
+            # Cria um socket e conecta a um endereço externo para descobrir o IP local
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(('8.8.8.8', 80))  # Conecta a um servidor externo (Google DNS)
+                local_ip = s.getsockname()[0]  # Obtém o IP local
+            return local_ip
+        except Exception as e:
+            print(f"Error: {e}")
+            return None
         
     # procura por maquinas na rede
-    def manda_broadcast(self, ip_broadcast, porta_broadcast):
+    def broadcast_presence(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as broadcast_socket:
             broadcast_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            mensagem = "busca-se amigos:{}".format(socket.gethostname())
-            print(mensagem)
+            message = "BUSCO AMIGOS:{}".format(socket.gethostname())
             while True:
-                broadcast_socket.sendto(mensagem.encode(), (ip_broadcast, porta_broadcast))
-                time.sleep(5)  # Envia a mensagem de broadcast a cada 5 segundos
-
+                broadcast_socket.sendto(message.encode(), (BROADCAST_IP, BROADCAST_PORT))
+                time.sleep(10)  # Envia a mensagem de broadcast a cada 5 segundos
+        
     # escuta por maquinas na rede
-    def listen_for_broadcasts(self, ip_broadcast, porta_broadcast):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as socket_ouvinte:
-            socket_ouvinte.bind(("", porta_broadcast))
+    def listen_for_broadcasts(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listen_socket:
+            listen_socket.bind(("", BROADCAST_PORT))
             while True:
-                message, addr = socket_ouvinte.recvfrom(BUFFER_SIZE)
-                if message.startswith(b"busca-se amigos:"):
-                    discovered_nodes.add(addr)
-                    print(f"Discovered node: {addr}")    
+                message, addr = listen_socket.recvfrom(BUFFER_SIZE)
+                if message.startswith(b"BUSCO AMIGOS:") and addr[0] != self.ip:
+                    discovered_nodes.add(addr[0])
+                    print(f"Discovered node: {addr[0]}")
+                
+    def send_direct_message(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as send_socket:
+            while True:
+                message = input("Enter message to send: ")
+                for node in discovered_nodes:
+                    send_socket.sendto(message.encode(), (node, LOCAL_PORT))
+                    print(f"Message sent to {node}:{LOCAL_PORT}")
+                
+    def listen_for_direct_messages(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listen_socket:
+            listen_socket.bind(("", LOCAL_PORT))
+            while True:
+                message, addr = listen_socket.recvfrom(BUFFER_SIZE)
+                print(f"Received message: {message.decode()} from {addr}")
+
+
+
+
+def main():
+    instancia = Maquina("Jogador")
+    print(instancia.ip)
+    # Thread para escutar mensagens de broadcast
+    broadcast_thread = threading.Thread(target=instancia.listen_for_broadcasts)
+    broadcast_thread.daemon = True
+    broadcast_thread.start()
+
+    # Thread para enviar presença via broadcast
+    presence_thread = threading.Thread(target=instancia.broadcast_presence)
+    presence_thread.daemon = True
+    presence_thread.start()
+
+    # Thread para escutar mensagens diretas
+    direct_listen_thread = threading.Thread(target=instancia.listen_for_direct_messages)
+    direct_listen_thread.daemon = True
+    direct_listen_thread.start()
+    
+    # Enviar mensagens diretas
+    instancia.send_direct_message()
+
+    while True:
+        if instancia.bastao:
             
-    def entra_na_rede(self):    
+
+if __name__ == "__main__":
+    main()         
+    #def entra_na_rede(self):    
         
     # manda mensagem para alvo
-    def manda_mensagem(self, alvo, operacao, mensagem):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((alvo.ip, porta))
-        s.send(f"{operacao} {mensagem}".encode())
-        s.close()
         
     # recebe mensagem e seleciona qual operacao fazer
-    def escuta(self, porta):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(('', porta))
-        s.listen(1000)
-        conn, addr = s.accept()
-        operacao, mensagem = conn.recv(1024).decode().split()
-        conn.close()
-        s.close()
-        print(f"Operacao: {operacao}")
-        print(f"Mensagem: {mensagem}")
-        return operacao, mensagem
+
+    
     # operacoes ate agora:
     # 1 - entra na rede
         # manda mensagem para todas as maquinas na rede 
@@ -73,4 +124,4 @@ class Maquina:
     # 6 - bota carta na mesa
     # 7 - verifica quem ganhou a rodada, diminui pontos dos perdedores e incrementa cartas
     # 8 - encerra partida
-     
+

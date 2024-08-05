@@ -1,4 +1,5 @@
 import carta
+import re
 
 class Mao:
     def __init__(self):
@@ -9,6 +10,14 @@ class Mao:
             return ' | '.join(str(carta) for carta in self.cartas)
         else:
             return "Mão vazia"
+                
+    def process_message(self, message):
+        print("mensagem: ", message)
+        carta_num = message[0]
+        naipe = re.search(r'de\s+(.*)', message)
+        nova_carta = carta.Carta(carta_num, naipe)
+        self.recebe_carta(nova_carta)
+        print(f"Carta {nova_carta} recebida e adicionada à mão.")
                 
     def recebe_carta(self, carta):
         self.cartas.append(carta)

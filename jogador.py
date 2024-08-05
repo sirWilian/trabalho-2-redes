@@ -7,7 +7,7 @@ class Jogador:
             self.nome = self.nome + f" {nome}" 
             
         self.mao = Mao()    # preenchido por objetos do tipo Mao
-        self.pontos = 0     # vidas
+        self.vidas = 12     # vidas
         self.vitorias = 0   # partidas ganhas (talvez nem precise disso)
         
     def __str__(self):
