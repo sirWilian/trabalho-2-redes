@@ -1,7 +1,8 @@
+import mao
 class Verificador:
     def __init__(self):
         # controla cartas jogadas por todos nessa mao
-        self.cartas = [] # vetor preenchido de objetos do tipo Carta
+        self.cartas = mao.Mao() # vetor preenchido de objetos do tipo Carta -- UPDATE agora é Mao
         self.donoMaiorCarta = None
         self.maiorCarta = None
         self.embuchada = False
@@ -58,3 +59,45 @@ class Verificador:
         if self.embuchada:
             return "Embuchou!"
         return f"{self.donoMaiorCarta} fez com {self.maiorCarta}"
+    
+    def bota_carta_na_mesa_com_manilha(self, carta, jogador, manilha):
+        self.cartas.recebe_carta(carta)
+        # se for a primeira carta jogada, ela é a maior
+        if len(self.cartas.cartas) == 1:
+            self.maiorCarta = carta
+            self.donoMaiorCarta = jogador
+            return
+        # se não for a primeira carta jogada, verifica se é a maior
+        # primeiro verifica se a maior atual é manilha, se for, 
+        # o valor de comparacao eh o self.valorManilha
+        
+        # verifica manilhas
+        self.cartas.verifica_manilhas(manilha)
+        # caso as duas sejam manilhas
+        if self.maiorCarta.ehManilha and self.cartas.cartas[-1].ehManilha:
+            if self.cartas.cartas[-1].valorManilha > self.maiorCarta.valorManilha:
+                self.maiorCarta = carta
+                self.donoMaiorCarta = jogador
+                self.embuchada = False
+            return
+        # caso a maior atual seja manilha e a carta jogada não seja
+        elif self.maiorCarta.ehManilha and not self.cartas.cartas[-1].ehManilha:
+            self.embuchada = False
+            return
+        # caso a maior atual não seja manilha e a carta jogada seja
+        elif not self.maiorCarta.ehManilha and self.cartas.cartas[-1].ehManilha:
+            self.maiorCarta = carta
+            self.donoMaiorCarta = jogador
+            self.embuchada = False
+            return
+        # caso nenhuma das duas seja manilha
+        else:
+            if self.cartas.cartas[-1].valorPadrao > self.maiorCarta.valorPadrao:
+                self.maiorCarta = carta
+                self.donoMaiorCarta = jogador
+                self.embuchada = False
+                return
+            # caso as duas cartas tenham o mesmo valor (embucha)
+            elif self.cartas.cartas[-1].valorPadrao == self.maiorCarta.valorPadrao:
+                self.embuchada = True
+                return

@@ -11,6 +11,13 @@ class Mao:
         else:
             return "Mão vazia"
                 
+    def imprime_mao(self):
+        if len(self.cartas) > 0:
+            contador = 1
+            for carta in self.cartas:
+                print(f"{contador} - {carta}" )          
+                contador += 1
+                
     def process_message(self, message):
         print("mensagem: ", message)
         carta_num = message[0]
@@ -22,9 +29,9 @@ class Mao:
     def recebe_carta(self, carta):
         self.cartas.append(carta)
         
-    def joga_carta(self):
+    def joga_carta(self, index):
         if len(self.cartas) > 0:
-            return self.cartas.pop(0)
+            return self.cartas.pop(index-1)
         # so pra debug, nao deveria chegar ate aqui no mundo ideal
         return "todas as cartas foram jogadas"
     
