@@ -10,12 +10,14 @@ import jogador
 import baralho
 import verificador
 import re
+import signal
+import sys
 
 BUFFER_SIZE = 1024
 BROADCAST_IP = "255.255.255.255"
 BROADCAST_PORT = 44445
 LOCAL_PORT = 44446  # Porta de escuta local
-MAX_MACHINES = 2  # Número máximo de máquinas na rede
+MAX_MACHINES = 4  # Número máximo de máquinas na rede
 
 OPERATION_CODES = {
     "ACK": 0,
@@ -24,7 +26,7 @@ OPERATION_CODES = {
     "PALPITA": 3,
     "MOSTRAR": 4,
     "JOGAR": 5,
-    "ENVIA_REDE": 6,
+    "ME TIRA": 6,
     "CONVITE": 7,
     "BUSCO AMIGOS": 8,
     "ESPERANDO AMIGOS": 9,
@@ -33,10 +35,12 @@ OPERATION_CODES = {
     "PALPITA CEGO": 12,
     "PERDEU": 13,
     "PERDI": 14,
-    "OPERATION_16": 15,
-    "ACK": 16,
-    "NACK": 17,
+    "BOA": 15,
+    "PEGA E ME TIRA": 18,
+    "VIRA": 19,
+    "RESULTADO RODADA": 20,
 }
+
 
 REVERSE_OPERATION_CODES = {v: k for k, v in OPERATION_CODES.items()}
 
@@ -141,7 +145,7 @@ class Maquina:
           
     def trata_mensagens(self, mensagem: str, origem: str):
         mensagem_dict = parse_message(mensagem)
-        print(f"mensagem recebida de {origem} -> {mensagem_dict['operacao']}: {mensagem_dict['dados']}")
+        #print(f"mensagem recebida de {origem} -> {mensagem_dict['operacao']}: {mensagem_dict['dados']}")
         # acao == 0 todos podem ver a mensagem, tomar alguma acao interna e passar pra frente a mensagem inicial
         if mensagem_dict["acao"] == 0:
             if mensagem_dict["destino"] == BROADCAST_IP and self.bastao:
@@ -149,7 +153,7 @@ class Maquina:
                 if mensagem_dict["operacao"] == OPERATION_CODES["BUSCO AMIGOS"]:
                     print(f"Pedido de amizade recebido de {mensagem_dict['origem']}")
                     self.send_message(self.ip, origem, LOCAL_PORT, "ACK", f"recebido", 1)
-                    time.sleep(1)
+                    time.sleep(3)
                     if self.send_message(self.ip, origem, LOCAL_PORT, "CONVITE", f"venha jogar comigo", 1) != 0:                
                         if not eh_duplicado(self.network_nodes, mensagem_dict["origem"]):
                             self.network_nodes.append(mensagem_dict["origem"])
@@ -221,8 +225,8 @@ class Maquina:
             # COLETA PALPITES MOSTRANDO A CARTA DOS ADVERSARIOS
             elif mensagem_dict["operacao"] == OPERATION_CODES["PALPITA CEGO"]:
                 self.send_message(self.ip, origem, LOCAL_PORT, "ACK", f"recebido", 1)
-                print("cartas dos adversarios")
-                print("mensagem dentro do palpita", mensagem_dict["dados"])
+                print()
+                print("Os adversarios tem essas cartas:")
                 dados_formatados = json.loads(mensagem_dict["dados"])
                 for item in dados_formatados["cartas"]:
                     if item["ip"] != self.ip:
@@ -244,7 +248,7 @@ class Maquina:
                     print("palpites cegos coletados!", self.controladorPalpites)
                     return 8
                 self.encaminha_mensagem(
-                    create_message(self.ip, mensagem_dict["destino"], OPERATION_CODES["PALPITA CEGO"], 
+                    create_message(origem, mensagem_dict["destino"], OPERATION_CODES["PALPITA CEGO"], 
                                    json.dumps(mensagem_dict["dados"]), 0)
                     )
                 
@@ -253,10 +257,10 @@ class Maquina:
                 print("cartas na mao", self.jogador.mao)
                 # exibe index de cada carta na tela 
                 self.jogador.mao.imprime_mao()
-                carta = input("qual carta voce quer jogar?")
+                carta_jogada = input("qual carta voce quer jogar?")
                 
                 mensagem_dict["dados"] = json.loads(mensagem_dict["dados"])
-                mensagem_dict["dados"]["cartas"].append(str(self.jogador.mao.joga_carta(int(carta))))
+                mensagem_dict["dados"]["cartas"].append(str(self.jogador.mao.joga_carta(int(carta_jogada))))
                 if mensagem_dict["dados"]["destino"] == self.ip:
                     self.controladorCartas = mensagem_dict["dados"]["cartas"]
                     print("cartas coletadas!", self.controladorCartas)
@@ -265,6 +269,28 @@ class Maquina:
                     create_message(self.ip, mensagem_dict["destino"], OPERATION_CODES["JOGAR"], 
                                    json.dumps(mensagem_dict["dados"]), 0)
                     )
+            elif mensagem_dict["operacao"] == OPERATION_CODES["VIRA"]:
+                mensagem_dict["dados"] = json.loads(mensagem_dict["dados"])
+                carta_num = mensagem_dict['dados']["vira"][0]
+                naipe = re.search(r'de\s+(.*)', mensagem_dict["dados"]["vira"]).group(1)
+                instancia_carta = carta.Carta(carta_num, naipe)
+                print(f"vira dessa rodada era: {instancia_carta}")
+                if mensagem_dict["dados"]["destino"] == self.ip:
+                    return 1
+                self.encaminha_mensagem(
+                    create_message(self.ip, mensagem_dict["destino"], OPERATION_CODES["VIRA"], 
+                                json.dumps(mensagem_dict["dados"]), 0)
+                )
+            elif mensagem_dict["operacao"] == OPERATION_CODES["RESULTADO RODADA"]:
+                mensagem_dict["dados"] = json.loads(mensagem_dict["dados"])
+                print("mensagem no resultado", mensagem_dict)
+                print("resultado: ", f"{mensagem_dict['dados']['resultado']}")
+                if mensagem_dict["dados"]["destino"] == self.ip:
+                    return 1
+                self.encaminha_mensagem(
+                    create_message(self.ip, mensagem_dict["destino"], OPERATION_CODES["RESULTADO RODADA"], 
+                                json.dumps(mensagem_dict["dados"]), 0)
+                )
         # acao == 1 so o destino faz algo e repassa a mensagem     
         elif mensagem_dict["acao"] == 1:
             if mensagem_dict["destino"] == self.ip:
@@ -272,6 +298,7 @@ class Maquina:
                 if mensagem_dict["operacao"] == OPERATION_CODES["CONVITE"]:
                     print(f"Convite recebido de {mensagem_dict['origem']}")
                     self.send_message(self.ip, origem, LOCAL_PORT, "ACK", f"recebido", 1)
+                    time.sleep(2)
                     return 3
                 # RECEBIMENTO DE CARTA
                 elif mensagem_dict["operacao"] == OPERATION_CODES["RECEBE CARTA"]:
@@ -279,19 +306,67 @@ class Maquina:
                         mensagem_dict["origem"], self.prox_ip, 
                         LOCAL_PORT, "ACK", f"recebido", 1
                         )
-                    carta = json.loads(mensagem_dict["dados"])["carta"]
-                    self.jogador.mao.recebe_carta(carta)
+                    carta_jogada = json.loads(mensagem_dict["dados"])["carta"]
+                    self.jogador.mao.recebe_carta(carta_jogada)
                     return 1
+               
+                elif mensagem_dict["operacao"] == OPERATION_CODES["BOA"]:
+                    self.send_message(self.ip, origem, LOCAL_PORT, "ACK", f"recebido", 1)
+                    print("bom palpite!")
+                    return 1
+                # ERROU PALPITE
                 elif mensagem_dict["operacao"] == OPERATION_CODES["PERDEU"]:
                     self.send_message(self.ip, origem, LOCAL_PORT, "ACK", f"recebido", 1)
-                    self.jogador.vidas -= 1
+                    self.jogador.vidas -= 1 # decrementar baseado na quantidade de cartas
                     if self.jogador.vidas == 0:
                         print("voce perdeu o jogo!")
-                        self.envia_mensagem_anel(self.ip, mensagem_dict["origem"], LOCAL_PORT, "PERDI", "perdi", 1)
+                        # verifica se o pe perdeu todas as vidas, passa bastao e quita
+                        if mensagem_dict["origem"] == self.ip:
+                            self.bastao = False
+                            mensagem = {
+                                "origem": self.ip, "destino": self.prox_ip,
+                                "operacao": "PEGA E ME TIRA", "dados": "", "acao": 1 
+                            }
+                            self.envia_mensagem_anel(
+                                self.ip, self.prox_ip, LOCAL_PORT, 
+                                "PEGA E ME TIRA", json.dumps(mensagem), 1
+                            )
+                            return 55
+                        else: # maquina ordinaria perdeu
+                            mensagem = {
+                                "origem": self.ip, "destino": self.prox_ip,
+                                "operacao": "ME TIRA", "dados": "", "acao": 1 
+                            }
+                            mensagem_dict["dados"] = json.loads(mensagem_dict["dados"])
+                            self.encaminha_mensagem(
+                                create_message(self.ip, mensagem_dict["dados"]["destino"], OPERATION_CODES["ME TIRA"], 
+                                json.dumps(mensagem), 1)
+                            )
+                            self.envia_mensagem_anel(
+                                self.ip, self.prox_ip, LOCAL_PORT, 
+                                "ME TIRA", json.dumps(mensagem), 1
+                            )
+                            return 100
+                    # ainda tem vidas sobrando
+                    print(f"voce perdeu uma vida! restam {self.jogador.vidas}")
+                    if mensagem_dict["origem"] == self.ip: # passa bastao
+                        self.bastao = False
+                        mensagem = {
+                            "origem": self.ip, "destino": mensagem_dict["origem"],
+                            "operacao": "PEGA", "dados": "", "acao": 1 
+                        }
+                        self.envia_mensagem_anel(
+                            self.ip, self.prox_ip, LOCAL_PORT, 
+                            "PEGA", json.dumps(mensagem), 1
+                        )
+                        return 60
                     return 1
-                elif mensagem_dict["operacao"] == OPERATION_CODES["PERDI"]:
-                    self.send_message(self.ip, origem, LOCAL_PORT, "ACK", f"recebido", 1)
-                    self.network_nodes.remove(origem)
+                # AS VIDAS ACABARAM
+                elif mensagem_dict["operacao"] == OPERATION_CODES["PEGA E ME TIRA"]:
+                    #self.send_message(self.ip, origem, LOCAL_PORT, "ACK", f"recebido", 1)
+                    self.bastao = True
+                    mensagem_dict = json.loads(mensagem_dict["dados"])
+                    self.network_nodes.remove(mensagem_dict[origem])
                     self.prox_ip = self.network_nodes[(self.network_nodes.index(self.ip) + 1) % len(self.network_nodes)]
                     # reorganiza a rede
                     self.envia_mensagem_anel(self.ip, self.prox_ip, LOCAL_PORT, "ORDENACAO", f"ANOTA: {str(self.network_nodes)}", 0)
@@ -308,7 +383,7 @@ class Maquina:
     def encaminha_mensagem(self, mensagem):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as send_socket:
             send_socket.sendto(mensagem, (self.prox_ip, LOCAL_PORT))
-            print(f"mensagem encaminhada para {self.prox_ip}:{LOCAL_PORT}")             
+            print(f"mensagem encaminhada para {self.prox_ip}:{LOCAL_PORT} -> {parse_message(mensagem)}")             
             print()           
                           
     # pede pra entrar na rede
@@ -375,14 +450,14 @@ class Maquina:
             listen_socket.bind(("", porta))
             listen_socket.settimeout(tempo)  # Timeout para esperar ACK/NACK
             try:
-                print("esperando ACK/NACK")
+                #print("esperando ACK/NACK")
                 ack_message, _ = listen_socket.recvfrom(BUFFER_SIZE)
                 
                 if self.trata_mensagens(ack_message, ip_destino) == 2:
                     return 1
 
             except socket.timeout:
-                print(f"nenhum ACK/NACK recebido nos ultimos {tempo}s")
+                #print(f"nenhum ACK/NACK recebido nos ultimos {tempo}s")
                 return 0
 
     def envia_mensagem_anel(self, ip_origem: str, ip_destino: str, porta: int, operacao: str, dados: str, acao: int):                
@@ -392,17 +467,17 @@ class Maquina:
             send_socket.sendto(message, (self.prox_ip, porta))
             print()
             print(f"mensagem enviada para {self.prox_ip}:{porta} -> {operacao}: {dados}")
-            print("operacao", operacao)
-            print("dados", dados)
             print()
             tempo = 3
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listen_socket:
             listen_socket.bind(("", porta))
             listen_socket.settimeout(tempo)
             try:
-                print("esperando ACK/NACK")
+                #print("esperando ACK/NACK")
                 ack_message, _ = listen_socket.recvfrom(BUFFER_SIZE)
                 retorno = self.trata_mensagens(ack_message, ip_destino)
+                if operacao == "ME TIRA": # nao espera ack pq a maq deve sair
+                    return 0
                 if retorno == 2:
                     return 1
                 # um retorno pra cada tipo de verificacao que a maquina tem que fazer:
@@ -416,37 +491,57 @@ class Maquina:
                 
                 # passa bastao pro proximo
             except socket.timeout:
-                print(f"nenhum ACK/NACK recebido nos ultimos {tempo}s")
+                #print(f"nenhum ACK/NACK recebido nos ultimos {tempo}s")
                 return 0
             
     
     def escuta_mensagens(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listen_socket:
-            listen_socket.bind(("", LOCAL_PORT))
-            while True:
-                message, addr = listen_socket.recvfrom(BUFFER_SIZE)
-                try:
-                    resultado = self.trata_mensagens(message, addr[0])
-                    print(self.estado)
-                    if resultado == 11:
-                        self.estado = "PEGA CARTAS"
-                        break
-                    elif resultado == 12:
-                        print("mudou de estado")
-                        self.estado = "VERIFICANDO"
-                        break
-                    elif resultado == 7:
-                        self.estado = "PEGA PALPITES CEGO"
-                        break
-                    elif resultado == 8:
-                        self.estado = "VERIFICA 1a RODADA"
-                        print("mudou de estado", self.estado)
-                        break
-                except ValueError as e:
-                    print(f"Error parsing message: {e}")
-                    # Send NACK
-                    nack_message = create_message(addr[0], OPERATION_CODES["NACK"], "NACK")
-                    listen_socket.sendto(nack_message, addr)
+            def signal_handler(sig, frame):
+                print("Ctrl+C pressed, exiting gracefully.")
+                sys.exit(0)
+
+            signal.signal(signal.SIGINT, signal_handler)
+
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listen_socket:
+                listen_socket.bind(("", LOCAL_PORT))
+                while True:
+                    try:
+                        message, addr = listen_socket.recvfrom(BUFFER_SIZE)
+                        resultado = self.trata_mensagens(message, addr[0])
+                        print(self.estado)
+                        if resultado == 11:
+                            print("mudou de estado", self.estado)
+                            self.estado = "PEGA CARTAS"
+                            print("para estado", self.estado)
+                            break
+                        elif resultado == 12:
+                            print("mudou de estado", self.estado)
+                            self.estado = "VERIFICANDO"
+                            print("para estado", self.estado)
+                            break
+                        elif resultado == 7:
+                            print("mudou de estado", self.estado)
+                            self.estado = "PEGA PALPITES CEGO"
+                            print("para estado", self.estado)
+                            break
+                        elif resultado == 8:
+                            print("mudou de estado", self.estado)
+                            self.estado = "VERIFICA 1a RODADA"
+                            print("para estado", self.estado)
+                            break
+                        elif resultado == 55: # quem tava com o bastao perdeu
+                            exit(1)
+                        elif resultado == 100: # maquina ordinaria perdeu
+                            exit(1)
+                    except ValueError as e:
+                        print(f"Error parsing message: {e}")
+                        # Send NACK
+                        nack_message = self.create_message(addr[0], OPERATION_CODES["NACK"], "NACK")
+                        listen_socket.sendto(nack_message, addr)
+                    except KeyboardInterrupt:
+                        print("Ctrl+C pressed, exiting gracefully.")
+                        #self.envia_mensagem_anel(self.ip, self.prox_ip, LOCAL_PORT, "ME TIRA", "", 0)
+                        sys.exit(0)
 
 def main():
     #nome = input("Qual o nome da máquina? ")
@@ -496,11 +591,10 @@ def main():
                 for i in range(qnt_cartas):
                     for j in range(1, len(instancia.network_nodes)):
                         index_atual = (meu_index + j) % len(instancia.network_nodes)
-                        print("index", index_atual)
                         # acao == 0 todos fazem algo, provavelmente interno, e repassam a mensagem
                         # acao == 1 só o destino faz algo e repassa a mensagem
                         mensagem = {"acao": 1, "destino": instancia.network_nodes[index_atual], 
-                                        "carta": str(monte_cartas.entrega_carta())}
+                                        "operacao": "RECEBE CARTA", "carta": str(monte_cartas.entrega_carta())}
                         instancia.envia_mensagem_anel(instancia.ip, instancia.network_nodes[index_atual], 
                                                       LOCAL_PORT, "RECEBE CARTA", f"{json.dumps(mensagem)}", 1)
                     instancia.jogador.mao.recebe_carta(monte_cartas.entrega_carta())
@@ -511,24 +605,24 @@ def main():
                     # TROCA ESTADO
                     instancia.estado = "PEGA CARTAS CEGO"
                 # mostrando cartas
-                message = {"acao": 0, "origem": instancia.ip, "destino": 
-                                instancia.ip, "vira": str(instancia.vira)}
-                instancia.envia_mensagem_anel(instancia.ip, instancia.ip, LOCAL_PORT, 
-                                              "MOSTRAR", json.dumps(message), 0)
+                #message = {"acao": 0, "origem": instancia.ip, "destino": 
+                #                instancia.ip, "vira": str(instancia.vira)}
+                #instancia.envia_mensagem_anel(instancia.ip, instancia.ip, LOCAL_PORT, 
+                #                              "MOSTRAR", json.dumps(message), 0)
 
             # PRIMEIRA RODADA
             if instancia.qnt_cartas == 1:
                 if instancia.estado == "PEGA CARTAS CEGO":
                     # COLETA CARTAS AS CEGAS
-                    for j in range(1, len(instancia.network_nodes)):
-                        index_atual = (meu_index + j) % len(instancia.network_nodes)
-                        mensagem = {
+                    #for j in range(1, len(instancia.network_nodes)):
+                    #    index_atual = (meu_index + j) % len(instancia.network_nodes)
+                    mensagem = {
                             "acao": 0, "origem": instancia.ip, 
                             "destino": instancia.ip, "cartas": [], 
                             "vira": str(instancia.vira), "posicao": index_atual,
                             "qnt_cartas": qnt_cartas
                             }
-                        instancia.envia_mensagem_anel(instancia.ip, maquina, LOCAL_PORT, 
+                    instancia.envia_mensagem_anel(instancia.ip, maquina, LOCAL_PORT, 
                                                         "JOGAR CEGO", json.dumps(mensagem), 0)  
 
                 elif instancia.estado == "PEGA PALPITES CEGO":
@@ -546,46 +640,121 @@ def main():
                 elif instancia.estado == "VERIFICA 1a RODADA":
                     # MOSTRAR O VIRA PRA GALERA e qual carta cada um jogou
                     print("verificando 1a rodada")
-                    print(instancia.controladorPalpites)
-                    print(instancia.controladorCartas)
                     instancia_verificadora = verificador.Verificador()
                     
                     for item in instancia.controladorCartas:
                         print(item)
                         carta_num = item["carta"][0]
                         naipe = re.search(r'de\s+(.*)', item["carta"]).group(1)
-                        print("carta_num", carta_num, "naipe", naipe)
                         instancia_carta = carta.Carta(carta_num, naipe)
                         instancia_verificadora.bota_carta_na_mesa_com_manilha(
                             instancia_carta, item["ip"], instancia.vira
                             )
+                        
+                    # mostra o vira
+                    mensagem = {
+                        "acao": 0, "origem": instancia.ip, 
+                        "destino": instancia.ip, "vira": str(instancia.vira), 
+                    }
+                    instancia.envia_mensagem_anel(instancia.ip, instancia.ip, 
+                                                  LOCAL_PORT, "VIRA", json.dumps(mensagem),0)
+                    print("resultado", instancia_verificadora)
+                    mensagem = {
+                        "acao": 0, "origem": instancia.ip, 
+                        "destino": instancia.ip, "resultado": str(instancia_verificadora), 
+                    }
+                    instancia.envia_mensagem_anel(instancia.ip, instancia.ip,
+                                                  LOCAL_PORT, "RESULTADO RODADA", json.dumps(mensagem), 0)
                     for item in instancia.controladorPalpites:
+                        print("palpites", item)
                         if str(instancia_verificadora) == "Embuchou!":
                             # envia mensagem de penalidade pra quem errou o palpite
                             if item["palpite"] == "1":
+                                print("mentiu falando que ia fazer, mas embuchou")
                                 mensagem = {
                                     "acao": 1, "origem": instancia.ip,
                                     "destino": item["ip"], "vira": str(instancia.vira),
-                                    "posicao": item["ip"], "penalidade": 1
+                                    "posicao": item["ip"], "penalidade": 1,
+                                    "veio de onde?": "embucho"
                                 }
                                 instancia.envia_mensagem_anel(
                                     instancia.ip, item["ip"], LOCAL_PORT, 
                                     "PERDEU", json.dumps(mensagem), 1
                                     )
+                                time.sleep(1)
+                                
                         elif re.match(r"(.*?) fez", str(instancia_verificadora)).group(1) == item["ip"]:
+                            print("ganhador", re.match(r"(.*?) fez", str(instancia_verificadora)).group(1))
+                            print("pseudo ganhador", item["ip"])
+                            # falou que ia fazer e fez
                             if item["palpite"] == "1":
+                                print("ganhou e chegou na vitoria")
                                 # COLOCAR MENSAGEM DE NAO PERDER
-                                pass
-                            # verificar se isso aqui atende ao caso: falei que nao ia fazer e fiz
-                            else:
+                                mensagem = {
+                                    "acao": 1, "origem": instancia.ip,
+                                    "destino": item["ip"], "vira": str(instancia.vira),
+                                    "posicao": item["ip"], "penalidade": 0,
+                                    "veio de onde?": "ganhou e acertou"
+                                }
+                                instancia.envia_mensagem_anel(
+                                    instancia.ip, item["ip"], LOCAL_PORT, 
+                                    "BOA", json.dumps(mensagem), 1
+                                    )
+                                time.sleep(1)
+
+                            # falou que nao ia fazer e fez
+                            elif item["palpite"] == 2: 
+                                mensagem = {
+                                    "acao": 1, "origem": instancia.ip,
+                                    "destino": item["ip"], "vira": str(instancia.vira),
+                                    "posicao": item["ip"], "penalidade": 1,
+                                    "veio de onde?": "disse que nao fazia mas mamou"
+                                }
+                                print("perdeu e chegou na derrota")
                                 instancia.envia_mensagem_anel(
                                     instancia.ip, item["ip"], LOCAL_PORT, 
                                     "PERDEU", json.dumps(mensagem), 1
-                                    )
-                    print(instancia_verificadora)
-                        # incrementa quantidade de cartas (do proximo) e passa bastao pro proximo
-                        
-                    
+                                )
+                                time.sleep(1)
+
+                                pass
+                        # nao fez
+                        else:
+                            print("palpite else", item)
+                            # falou que nao ia fazer e nao fez
+                            if item["palpite"] == 2:
+                                mensagem = {
+                                    "acao": 1, "origem": instancia.ip,
+                                    "destino": item["ip"], "vira": str(instancia.vira),
+                                    "posicao": item["ip"], "penalidade": 0,
+                                    "veio de onde?": "disse que nao ia fazer e nao fez"
+                                    
+                                }
+                                # COLOCAR MENSAGEM DE NAO PERDER
+                                instancia.envia_mensagem_anel(
+                                    instancia.ip, item["ip"], LOCAL_PORT, 
+                                    "BOA", "", 1
+                                )
+                                time.sleep(1)
+
+                            # falou que ia fazer e nao fez
+                            elif item["palpite"] == 1:
+                                mensagem = {
+                                    "acao": 1, "origem": instancia.ip,
+                                    "destino": item["ip"], "vira": str(instancia.vira),
+                                    "posicao": item["ip"], "penalidade": 1,
+                                    "veio de onde?": "disse que fazia mas mamou"
+                                }
+                                instancia.envia_mensagem_anel(
+                                    instancia.ip, item["ip"], LOCAL_PORT, 
+                                    "PERDEU", json.dumps(mensagem), 1
+                                )
+                                time.sleep(1)
+
+                    # incrementa quantidade de cartas (do proximo) e passa bastao pro proximo
+                    instancia.qnt_cartas += 1
+                    instancia.bastao = False
+                    #instancia.envia_mensagem_anel(instancia.ip, )
                     pass
                 else:
                     pass
